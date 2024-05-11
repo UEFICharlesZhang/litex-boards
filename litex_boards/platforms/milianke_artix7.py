@@ -12,7 +12,7 @@ from litex.build.openocd import OpenOCD
 
 _io = [
     # Clk / Rst
-    ("clk50", 0, Pins("V4"), IOStandard("SSTL15")),
+    ("clk50", 0, Pins("V4"), IOStandard("SSTL135")),
     ("cpu_reset", 0, Pins("R14"), IOStandard("LVCMOS33")), # KEY1
 
     # Leds
@@ -67,40 +67,38 @@ _io = [
         IOStandard("LVCMOS33"),
     ),
 
-
-
     # DDR3 SDRAM
     # MT41K128M16JT-125K
     ("ddram", 0,
         Subsignal("a", Pins("AB3 AA6 Y3 Y2 AB6 AA3 Y7 AA4",
                             "AA8 Y4 Y9 AB7 AA5 W5 AB8"),
-            IOStandard("SSTL15")),
-        Subsignal("ba",    Pins("AB2 AB5 W2"), IOStandard("SSTL15")),
-        Subsignal("ras_n", Pins("V2"), IOStandard("SSTL15")),
-        Subsignal("cas_n", Pins("AA1"), IOStandard("SSTL15")),
-        Subsignal("we_n",  Pins("W1"), IOStandard("SSTL15")),
+            IOStandard("SSTL135")),
+        Subsignal("ba",    Pins("AB2 AB5 W2"), IOStandard("SSTL135")),
+        Subsignal("ras_n", Pins("V2"), IOStandard("SSTL135")),
+        Subsignal("cas_n", Pins("AA1"), IOStandard("SSTL135")),
+        Subsignal("we_n",  Pins("W1"), IOStandard("SSTL135")),
         # cs_n is hardwired on the board
-        Subsignal("cs_n",  Pins("Y1"), IOStandard("SSTL15")),
-        Subsignal("dm", Pins("P2 J6 D2 H2"), IOStandard("SSTL15")),
+        Subsignal("cs_n",  Pins("Y1"), IOStandard("SSTL135")),
+        Subsignal("dm", Pins("P2 J6 D2 H2"), IOStandard("SSTL135")),
         Subsignal("dq", Pins(
             "P6 R1 M5 N4 N5 N2 M6 P1",
             "L3 J4 M3 K4 M2 K3 L4 L5",
             "B1 E2 B2 F3 A1 G1 C2 F1",
             "J5 H5 K1 G4 H4 G3 H3 G2"
             ),
-            IOStandard("SSTL15"),
+            IOStandard("SSTL135"),
             Misc("IN_TERM=UNTUNED_SPLIT_40")),
         Subsignal("dqs_p", Pins("P5 M1 E1 K2"),
-            IOStandard("DIFF_SSTL15"),
+            IOStandard("DIFF_SSTL135"),
             Misc("IN_TERM=UNTUNED_SPLIT_40")),
         Subsignal("dqs_n", Pins("P4 L1 D1 J2"),
-            IOStandard("DIFF_SSTL15"),
+            IOStandard("DIFF_SSTL135"),
             Misc("IN_TERM=UNTUNED_SPLIT_40")),
-        Subsignal("clk_p", Pins("T5"), IOStandard("DIFF_SSTL15")),
-        Subsignal("clk_n", Pins("U5"), IOStandard("DIFF_SSTL15")),
-        Subsignal("cke",   Pins("Y6"), IOStandard("SSTL15")),
-        Subsignal("odt",   Pins("AB1"), IOStandard("SSTL15")),
-        Subsignal("reset_n", Pins("W4"), IOStandard("SSTL15")),
+        Subsignal("clk_p", Pins("T5"), IOStandard("DIFF_SSTL135")),
+        Subsignal("clk_n", Pins("U5"), IOStandard("DIFF_SSTL135")),
+        Subsignal("cke",   Pins("Y6"), IOStandard("SSTL135")),
+        Subsignal("odt",   Pins("AB1"), IOStandard("SSTL135")),
+        Subsignal("reset_n", Pins("W4"), IOStandard("SSTL135")),
         Misc("SLEW=FAST"),
     ),
     # RGMII Ethernet (RTL8211FD)
@@ -123,38 +121,9 @@ _io = [
 
 # Connectors ---------------------------------------------------------------------------------------
 
-# _connectors = [
-#     ("pmoda", "C17 D18 E18 G17 D17 E17 F18 G18"),
-#     ("pmodb", "D14 F16 G16 H14 E16 F13 G13 H16"),
-#     ("pmodc", "K1 F6 J2 G6 E7 J3 J4 E6"),
-#     ("pmodd", "H4 H1 G1 G3 H2 G4 G2 F3"),
-#     ("pmodxdac", "A13 A15 B16 B18 A14 A16 B17 A18"),
-# ]
 _connectors = []
 # PMODS --------------------------------------------------------------------------------------------
 
-# def sdcard_pmod_io(pmod):
-#     return [
-#         # SDCard PMOD:
-#         # - https://store.digilentinc.com/pmod-microsd-microsd-card-slot/
-#         ("spisdcard", 0,
-#             Subsignal("clk",  Pins(f"{pmod}:3")),
-#             Subsignal("mosi", Pins(f"{pmod}:1"), Misc("PULLUP True")),
-#             Subsignal("cs_n", Pins(f"{pmod}:0"), Misc("PULLUP True")),
-#             Subsignal("miso", Pins(f"{pmod}:2"), Misc("PULLUP True")),
-#             Misc("SLEW=FAST"),
-#             IOStandard("LVCMOS33"),
-#         ),
-#         ("sdcard", 0,
-#             Subsignal("data", Pins(f"{pmod}:2 {pmod}:4 {pmod}:5 {pmod}:0"), Misc("PULLUP True")),
-#             Subsignal("cmd",  Pins(f"{pmod}:1"), Misc("PULLUP True")),
-#             Subsignal("clk",  Pins(f"{pmod}:3")),
-#             Subsignal("cd",   Pins(f"{pmod}:6")),
-#             Misc("SLEW=FAST"),
-#             IOStandard("LVCMOS33"),
-#         ),
-# ]
-# _sdcard_pmod_io = sdcard_pmod_io("pmodd") # SDCARD PMOD on JD.
 
 # Platform -----------------------------------------------------------------------------------------
 
