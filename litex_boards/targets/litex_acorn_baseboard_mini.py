@@ -6,6 +6,8 @@
 # Copyright (c) 2021-2024 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
+import subprocess
+
 from migen import *
 
 from litex.gen import *
@@ -25,6 +27,9 @@ from litex.soc.cores.led import LedChaser
 
 from litex.build.generic_platform import IOStandard, Subsignal, Pins
 
+from litepcie.phy.s7pciephy import S7PCIEPHY
+from litepcie.software import generate_litepcie_software
+
 from litedram.modules import MT41K512M16
 from litedram.phy import s7ddrphy
 
@@ -36,15 +41,18 @@ from litesata.phy import LiteSATAPHY
 # Platform -----------------------------------------------------------------------------------------
 
 class Platform(sqrl_acorn.Platform):
-    def create_programmer(self, name="openocd"):
-        return OpenOCD("openocd_xc7_ft2232.cfg", "bscan_spi_xc7a200t.bit")
+    def detect_ftdi_chip(self):
+        lsusb_log = subprocess.run(['lsusb'], capture_output=True, text=True)
+        for ftdi_chip in ["ft232", "ft2232", "ft4232"]:
+            if f"Future Technology Devices International, Ltd {ftdi_chip.upper()}" in lsusb_log.stdout:
+                return ftdi_chip
+        return None
 
-_serial_io = [
-    ("serial", 0,
-        Subsignal("tx", Pins("G1"),  IOStandard("LVCMOS33")), # CLK_REQ
-        Subsignal("rx", Pins("Y13"), IOStandard("LVCMOS18")), # SMB_ALERT_N
-    ),
-]
+    def create_programmer(self, name="openocd"):
+        ftdi_chip = self.detect_ftdi_chip()
+        if ftdi_chip is None:
+            raise RuntimeError("No compatible FTDI device found.")
+        return OpenOCD(f"openocd_xc7_{ftdi_chip}.cfg", "bscan_spi_xc7a200t.bit")
 
 # CRG ----------------------------------------------------------------------------------------------
 
@@ -73,7 +81,7 @@ class CRG(LiteXModule):
 
         # IDelayCtrl.
         if with_dram:
-            self.comb += self.cd_idelay.clk.eq(clk200_se)
+            self.specials += Instance("BUFG", i_I=clk200_se, o_O=self.cd_idelay.clk)
             self.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
 
         # Eth PLL.
@@ -95,7 +103,8 @@ class CRG(LiteXModule):
 # BaseSoC -----------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, variant="cle-215+", sys_clk_freq=125.00e6,
+    def __init__(self, variant="cle-215+", sys_clk_freq=125e6,
+        with_pcie       = False,
         with_ethernet   = False,
         with_etherbone  = False,
         eth_ip          = "192.168.1.50",
@@ -105,7 +114,7 @@ class BaseSoC(SoCCore):
         with_sata       = False, sata_gen="gen2",
         **kwargs):
         platform = Platform(variant=variant)
-        platform.add_extension(_serial_io, prepend=True)
+        platform.add_extension(sqrl_acorn._litex_acorn_baseboard_mini_io, prepend=True)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Acorn CLE-101/215(+)", **kwargs)
@@ -130,47 +139,76 @@ class BaseSoC(SoCCore):
                 l2_cache_size = kwargs.get("l2_size", 8192)
             )
 
-        # Ethernet / SATA RefClk/Shared-QPLL -------------------------------------------------------
+        # PCIe -------------------------------------------------------------------------------------
+        if with_pcie:
+            assert not with_sata
+            self.pcie_phy = S7PCIEPHY(platform, platform.request("pcie_x1"),
+                data_width = 64,
+                bar0_size  = 0x20000)
+            self.add_pcie(phy=self.pcie_phy, ndmas=1)
+            platform.toolchain.pre_placement_commands.append("reset_property LOC [get_cells -hierarchical -filter {{NAME=~pcie_s7/*gtp_channel.gtpe2_channel_i}}]")
+            platform.toolchain.pre_placement_commands.append("set_property LOC GTPE2_CHANNEL_X0Y7 [get_cells -hierarchical -filter {{NAME=~pcie_s7/*gtp_channel.gtpe2_channel_i}}]")
 
-        # Ethernet QPLL Settings.
-        qpll_eth_settings = QPLLSettings(
-            refclksel  = 0b111,
-            fbdiv      = 4,
-            fbdiv_45   = 4,
-            refclk_div = 1,
-        )
+        # PCIe / Ethernet / SATA / Shared-QPLL -----------------------------------------------------
 
-        # SATA QPLL Settings.
-        qpll_sata_settings = QPLLSettings(
-            refclksel  = 0b111,
-            fbdiv      = 5,
-            fbdiv_45   = 4,
-            refclk_div = 1,
-        )
+        if not with_pcie:
+            # Ethernet QPLL Settings.
+            qpll_eth_settings = QPLLSettings(
+                refclksel  = 0b111,
+                fbdiv      = 4,
+                fbdiv_45   = 4,
+                refclk_div = 1,
+            )
+            platform.add_platform_command("set_property SEVERITY {{Warning}} [get_drc_checks REQP-49]")
 
-        # Shared QPLL.
-        self.qpll = qpll = QPLL(
-            gtgrefclk0    = Open() if not with_eth  else self.crg.cd_eth_ref.clk,
-            qpllsettings0 = None   if not with_eth  else qpll_eth_settings,
-            gtgrefclk1    = Open() if not with_sata else self.crg.cd_sata_ref.clk,
-            qpllsettings1 = None   if not with_sata else qpll_sata_settings,
-        )
-        platform.add_platform_command("set_property SEVERITY {{Warning}} [get_drc_checks REQP-49]")
+            # SATA QPLL Settings.
+            qpll_sata_settings = QPLLSettings(
+                refclksel  = 0b111,
+                fbdiv      = 5,
+                fbdiv_45   = 4,
+                refclk_div = 1,
+            )
+            platform.add_platform_command("set_property SEVERITY {{Warning}} [get_drc_checks REQP-49]")
+
+            # Shared QPLL.
+            self.qpll = qpll = QPLL(
+                gtgrefclk0    = Open() if not with_eth  else self.crg.cd_eth_ref.clk,
+                qpllsettings0 = None   if not with_eth  else qpll_eth_settings,
+                gtgrefclk1    = Open() if not with_sata else self.crg.cd_sata_ref.clk,
+                qpllsettings1 = None   if not with_sata else qpll_sata_settings,
+            )
+
+        if with_pcie:
+            # PCIe QPLL Settings.
+            qpll_pcie_settings = QPLLSettings(
+                refclksel  = 0b001,
+                fbdiv      = 5,
+                fbdiv_45   = 5,
+                refclk_div = 1,
+            )
+
+            # Ethernet QPLL Settings.
+            qpll_eth_settings = QPLLSettings(
+                refclksel  = 0b111,
+                fbdiv      = 4,
+                fbdiv_45   = 4,
+                refclk_div = 1,
+            )
+            platform.add_platform_command("set_property SEVERITY {{Warning}} [get_drc_checks REQP-49]")
+
+            # Shared QPLL.
+            self.qpll = qpll = QPLL(
+                gtrefclk0     = Open() if not with_pcie else self.pcie_phy.pcie_refclk,
+                qpllsettings0 = None   if not with_pcie else qpll_pcie_settings,
+                gtgrefclk1    = Open() if not with_eth  else self.crg.cd_eth_ref.clk,
+                qpllsettings1 = None   if not with_eth  else qpll_eth_settings,
+            )
+            self.pcie_phy.use_external_qpll(qpll_channel=qpll.channels[0])
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
         if with_ethernet or with_etherbone:
-            _eth_io = [
-                ("sfp", 0,
-                    Subsignal("txp", Pins("D5")),
-                    Subsignal("txn", Pins("C5")),
-                    Subsignal("rxp", Pins("D11")),
-                    Subsignal("rxn", Pins("C11")),
-                ),
-            ]
-            platform.add_extension(_eth_io)
-
             self.ethphy = A7_1000BASEX(
-                qpll_channel = qpll.channels[0],
+                qpll_channel = qpll.channels[1 if with_pcie else 0],
                 data_pads    = self.platform.request("sfp"),
                 sys_clk_freq = sys_clk_freq,
                 rx_polarity  = 1,  # Inverted on Acorn.
@@ -184,19 +222,6 @@ class BaseSoC(SoCCore):
 
         # SATA -------------------------------------------------------------------------------------
         if with_sata:
-            # IOs
-            _sata_io = [
-                ("sata", 0,
-                    # Inverted on Acorn.
-                    Subsignal("tx_p",  Pins("B6")),
-                    Subsignal("tx_n",  Pins("A6")),
-                    # Inverted on Acorn.
-                    Subsignal("rx_p",  Pins("B10")),
-                    Subsignal("rx_n",  Pins("A10")),
-                ),
-            ]
-            platform.add_extension(_sata_io)
-
             # PHY
             self.sata_phy = LiteSATAPHY(platform.device,
                 refclk     = self.crg.cd_sata_ref.clk,
@@ -225,6 +250,8 @@ def main():
     parser.add_target_argument("--flash",          action="store_true",          help="Flash bitstream.")
     parser.add_target_argument("--variant",        default="cle-215+",           help="Board variant (cle-215+, cle-215 or cle-101).")
     parser.add_target_argument("--sys-clk-freq",   default=125.00e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-pcie",      action="store_true",          help="Enable PCIe support.")
+    parser.add_target_argument("--driver",         action="store_true",          help="Generate PCIe driver.")
     parser.add_target_argument("--with-ethernet",  action="store_true",          help="Enable Ethernet support.")
     parser.add_target_argument("--with-etherbone", action="store_true",          help="Enable Etherbone support.")
     parser.add_target_argument("--eth-ip",         default="192.168.1.50",       help="Ethernet/Etherbone IP address.")
@@ -237,6 +264,7 @@ def main():
     soc = BaseSoC(
         variant        = args.variant,
         sys_clk_freq   = args.sys_clk_freq,
+        with_pcie      = args.with_pcie,
         with_ethernet  = args.with_ethernet,
         with_etherbone = args.with_etherbone,
         eth_ip         = args.eth_ip,
@@ -250,6 +278,9 @@ def main():
     builder = Builder(soc, **parser.builder_argdict)
     if args.build:
         builder.build(**parser.toolchain_argdict)
+
+    if args.driver:
+        generate_litepcie_software(soc, os.path.join(builder.output_dir, "driver"))
 
     if args.load:
         prog = soc.platform.create_programmer()
