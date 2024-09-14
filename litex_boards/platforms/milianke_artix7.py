@@ -108,7 +108,8 @@ _io = [
         IOStandard("LVCMOS33")
     ),
     ("eth", 0,
-        Subsignal("rst_n",   Pins("U17")),
+        # chz: disable rst_n for it cause critical waring of signal "eth_rx_clk"
+        # Subsignal("rst_n",   Pins("U17")),
         Subsignal("mdio",    Pins("N17")),
         Subsignal("mdc",     Pins("U18")),
         Subsignal("rx_ctl",  Pins("V18")),
@@ -147,4 +148,3 @@ class Platform(Xilinx7SeriesPlatform):
         Xilinx7SeriesPlatform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk50",             loose=True), 1e9/50e6)
         self.add_period_constraint(self.lookup_request("eth_clocks:rx", 0, loose=True), 1e9/125e6)
-        self.add_period_constraint(self.lookup_request("eth_clocks:rx", 1, loose=True), 1e9/125e6)
