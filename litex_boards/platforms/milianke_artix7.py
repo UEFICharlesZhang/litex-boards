@@ -108,8 +108,7 @@ _io = [
         IOStandard("LVCMOS33")
     ),
     ("eth", 0,
-        # chz: disable rst_n for it cause critical waring of signal "eth_rx_clk"
-        # Subsignal("rst_n",   Pins("U17")),
+        Subsignal("rst_n",   Pins("U17")),
         Subsignal("mdio",    Pins("N17")),
         Subsignal("mdc",     Pins("U18")),
         Subsignal("rx_ctl",  Pins("V18")),
